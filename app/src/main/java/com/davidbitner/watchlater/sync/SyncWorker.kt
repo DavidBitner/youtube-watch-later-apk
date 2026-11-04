@@ -13,6 +13,7 @@ import com.davidbitner.watchlater.data.Repo
 import com.davidbitner.watchlater.ytdlp.YtDlp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
 
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
@@ -21,6 +22,9 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
     private var currentId: String? = null
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        val cancelHook = this.coroutineContext[Job]?.invokeOnCompletion { cause ->
+            if (cause is CancellationException) currentId?.let { YtDlp.cancel(it) }
+        }
         try {
             runSync()
         } catch (e: CancellationException) {
@@ -30,13 +34,10 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             Repo.setSync(false, "Sync failed: ${e.message?.lineSequence()?.firstOrNull()?.take(140) ?: "unknown error"}")
             Result.success()
         } finally {
+            cancelHook?.dispose()
             Repo.setDownloading(null, 0f)
             Repo.refreshFiles()
         }
-    }
-
-    override fun onStopped() {
-        currentId?.let { YtDlp.cancel(it) }
     }
 
     private suspend fun runSync(): Result {
