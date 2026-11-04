@@ -34,6 +34,14 @@ object SyncScheduler {
             .enqueueUniqueWork(MANUAL, ExistingWorkPolicy.KEEP, request)
     }
 
+    fun restartSync(context: Context) {
+        val request = OneTimeWorkRequestBuilder<SyncWorker>()
+            .setConstraints(constraints(batteryNotLow = false))
+            .build()
+        WorkManager.getInstance(context)
+            .enqueueUniqueWork(MANUAL, ExistingWorkPolicy.REPLACE, request)
+    }
+
     fun schedulePeriodic(context: Context) {
         val request = PeriodicWorkRequestBuilder<SyncWorker>(12, TimeUnit.HOURS)
             .setConstraints(constraints(batteryNotLow = true))

@@ -21,7 +21,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -58,7 +57,6 @@ fun SettingsScreen(onBack: () -> Unit) {
     val snackbar = remember { SnackbarHostState() }
     var ytVersion by remember { mutableStateOf<String?>(null) }
     var updating by remember { mutableStateOf(false) }
-    var urlText by remember(s.playlistUrl) { mutableStateOf(s.playlistUrl) }
     var confirmReset by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -135,22 +133,11 @@ fun SettingsScreen(onBack: () -> Unit) {
                 checked = s.reverseOrder,
             ) { v -> Repo.updateSettings { it.copy(reverseOrder = v) } }
 
-            Section("Playlist")
-            OutlinedTextField(
-                value = urlText,
-                onValueChange = { urlText = it },
-                label = { Text("Playlist link") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Button(
-                onClick = {
-                    Repo.updateSettings { it.copy(playlistUrl = urlText.trim()) }
-                    SyncScheduler.syncNow(context)
-                    onBack()
-                },
-                enabled = urlText.isNotBlank() && urlText.trim() != s.playlistUrl,
-            ) { Text("Save and sync") }
+            Section("Playlists")
+            PlaylistManager(history = s.history, activeUrl = s.playlistUrl)
+            Spacer(Modifier.height(4.dp))
+            Label("Add a playlist")
+            AddPlaylistForm(onAdded = onBack)
 
             Section("Maintenance")
             Label("yt-dlp ${ytVersion ?: "…"}")

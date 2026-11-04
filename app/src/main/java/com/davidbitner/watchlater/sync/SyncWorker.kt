@@ -41,6 +41,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
     private suspend fun runSync(): Result {
         val ctx = applicationContext
+        if (Repo.settings.value.playlistUrl.isBlank()) return Result.success()
         Repo.setSync(true, "Checking playlist…")
         showForeground("Checking playlist…", -1)
 

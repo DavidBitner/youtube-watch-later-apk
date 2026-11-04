@@ -1,7 +1,9 @@
 package com.davidbitner.watchlater.data
 
-const val DEFAULT_PLAYLIST_URL =
-    "https://www.youtube.com/playlist?list=PLcONPgnNxpIXmDeFikLU0yuYQr7A0L_Sg"
+data class PlaylistRef(
+    val url: String,
+    val title: String,
+)
 
 data class Video(
     val id: String,
@@ -33,10 +35,12 @@ data class HomeState(
     val usedBytes: Long = 0L,
     val totalCount: Int = 0,
     val sync: SyncStatus = SyncStatus(),
+    val noPlaylist: Boolean = false,
 )
 
 data class AppSettings(
-    val playlistUrl: String = DEFAULT_PLAYLIST_URL,
+    val playlistUrl: String = "",
+    val history: List<PlaylistRef> = emptyList(),
     val speed: Float = 1.5f,
     val maxHeight: Int = 1080,
     val capGb: Int = 0,

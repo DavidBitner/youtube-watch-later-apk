@@ -8,8 +8,13 @@ import org.json.JSONObject
 import java.io.File
 
 object Repo {
+    private val LIST_REGEX = Regex("[?&]list=([A-Za-z0-9_-]+)")
+    private val ID_REGEX = Regex("^(PL|UU|FL|OL|LL)[A-Za-z0-9_-]{10,}$")
+
     private lateinit var settingsPrefs: SharedPreferences
     private lateinit var watchPrefs: SharedPreferences
+    private lateinit var baseDir: File
+    private lateinit var filesRoot: File
     private lateinit var playlistFile: File
     private var initialised = false
 
@@ -33,12 +38,74 @@ object Repo {
         val app = context.applicationContext
         settingsPrefs = app.getSharedPreferences("settings", Context.MODE_PRIVATE)
         watchPrefs = app.getSharedPreferences("watch", Context.MODE_PRIVATE)
-        playlistFile = File(app.filesDir, "playlist.json")
-        videosDir = File(app.getExternalFilesDir(null) ?: app.filesDir, "videos").also { it.mkdirs() }
+        filesRoot = app.filesDir
+        baseDir = File(app.getExternalFilesDir(null) ?: app.filesDir, "videos")
         settings.value = readSettings()
+        activate()
+        initialised = true
+    }
+
+    private fun keyOf(url: String): String {
+        val id = LIST_REGEX.find(url)?.groupValues?.get(1)
+        return id ?: Integer.toHexString(url.hashCode())
+    }
+
+    private fun activate() {
+        val url = settings.value.playlistUrl
+        videos = emptyList()
+        title = "Watch Later"
+        files = emptyMap()
+        usedBytes = 0L
+        downloadingId = null
+        downloadProgress = 0f
+        if (url.isBlank()) {
+            playlistFile = File(filesRoot, "playlist_none.json")
+            videosDir = File(baseDir, "none")
+            rebuild()
+            return
+        }
+        val key = keyOf(url)
+        playlistFile = File(filesRoot, "playlist_$key.json")
+        videosDir = File(baseDir, key).also { it.mkdirs() }
         loadPlaylist()
         refreshFiles()
-        initialised = true
+    }
+
+    fun normalizeUrl(input: String): String? {
+        val text = input.trim()
+        val fromUrl = LIST_REGEX.find(text)?.groupValues?.get(1)
+        val id = fromUrl ?: if (ID_REGEX.matches(text)) text else null
+        return id?.let { "https://www.youtube.com/playlist?list=$it" }
+    }
+
+    @Synchronized
+    fun selectPlaylist(url: String) {
+        val key = keyOf(url)
+        val existing = settings.value.history.firstOrNull { keyOf(it.url) == key }
+        val ref = PlaylistRef(url, existing?.title ?: "")
+        updateSettings {
+            it.copy(
+                playlistUrl = url,
+                history = listOf(ref) + it.history.filter { h -> keyOf(h.url) != key },
+            )
+        }
+        activate()
+    }
+
+    @Synchronized
+    fun removePlaylist(url: String) {
+        val key = keyOf(url)
+        File(baseDir, key).deleteRecursively()
+        File(filesRoot, "playlist_$key.json").delete()
+        val remaining = settings.value.history.filter { keyOf(it.url) != key }
+        val wasActive = keyOf(settings.value.playlistUrl) == key && settings.value.playlistUrl.isNotBlank()
+        updateSettings {
+            it.copy(
+                history = remaining,
+                playlistUrl = if (wasActive) remaining.firstOrNull()?.url ?: "" else it.playlistUrl,
+            )
+        }
+        if (wasActive) activate()
     }
 
     private fun readSettings(): AppSettings {
@@ -52,7 +119,18 @@ object Repo {
             reverseOrder = settingsPrefs.getBoolean("reverseOrder", d.reverseOrder),
             autoDeleteWatched = settingsPrefs.getBoolean("autoDeleteWatched", d.autoDeleteWatched),
             lastYtDlpUpdate = settingsPrefs.getLong("lastYtDlpUpdate", d.lastYtDlpUpdate),
+            history = readHistory(),
         )
+    }
+
+    private fun readHistory(): List<PlaylistRef> = try {
+        val arr = JSONArray(settingsPrefs.getString("history", "[]"))
+        (0 until arr.length()).map {
+            val o = arr.getJSONObject(it)
+            PlaylistRef(o.getString("url"), o.optString("title"))
+        }
+    } catch (_: Exception) {
+        emptyList()
     }
 
     @Synchronized
@@ -68,6 +146,12 @@ object Repo {
             .putBoolean("reverseOrder", s.reverseOrder)
             .putBoolean("autoDeleteWatched", s.autoDeleteWatched)
             .putLong("lastYtDlpUpdate", s.lastYtDlpUpdate)
+            .putString(
+                "history",
+                JSONArray().also { arr ->
+                    s.history.forEach { arr.put(JSONObject().put("url", it.url).put("title", it.title)) }
+                }.toString(),
+            )
             .apply()
         rebuild()
     }
@@ -113,6 +197,10 @@ object Repo {
         title = newTitle.ifBlank { "Watch Later" }
         videos = list
         savePlaylist()
+        val activeKey = keyOf(settings.value.playlistUrl)
+        updateSettings { cur ->
+            cur.copy(history = cur.history.map { if (keyOf(it.url) == activeKey) it.copy(title = title) else it })
+        }
         val keep = list.map { it.id }.toSet()
         videosDir.listFiles()?.forEach { f ->
             val id = f.name.substringBefore('.')
@@ -246,6 +334,6 @@ object Repo {
                 watched = isWatched(v.id),
             )
         }
-        home.value = HomeState(title, items, usedBytes, videos.size, syncStatus)
+        home.value = HomeState(title, items, usedBytes, videos.size, syncStatus, settings.value.playlistUrl.isBlank())
     }
 }

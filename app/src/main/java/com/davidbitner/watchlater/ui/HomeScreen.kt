@@ -78,6 +78,13 @@ private enum class Filter(val label: String) {
 fun HomeScreen(onPlay: (String) -> Unit, onOpenSettings: () -> Unit) {
     val context = LocalContext.current
     val state by Repo.home.collectAsStateWithLifecycle()
+    val settings by Repo.settings.collectAsStateWithLifecycle()
+    if (state.noPlaylist) {
+        Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
+            Box(Modifier.padding(padding)) { WelcomeScreen(onOpenSettings) }
+        }
+        return
+    }
     val waiting by remember { SyncScheduler.isWaiting(context) }
         .collectAsStateWithLifecycle(initialValue = false)
     var filter by rememberSaveable { mutableStateOf(Filter.ALL) }
@@ -85,7 +92,7 @@ fun HomeScreen(onPlay: (String) -> Unit, onOpenSettings: () -> Unit) {
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
-        if (Repo.home.value.totalCount == 0) SyncScheduler.syncNow(context)
+        if (!Repo.home.value.noPlaylist && Repo.home.value.totalCount == 0) SyncScheduler.syncNow(context)
     }
 
     val visible = remember(state.items, filter) {
@@ -106,7 +113,12 @@ fun HomeScreen(onPlay: (String) -> Unit, onOpenSettings: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = {
-                    Text(state.playlistTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    PlaylistTitle(
+                        title = state.playlistTitle,
+                        history = settings.history,
+                        activeUrl = settings.playlistUrl,
+                        onManage = onOpenSettings,
+                    )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
