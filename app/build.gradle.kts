@@ -82,6 +82,6 @@ dependencies {
 
     implementation("io.coil-kt:coil-compose:2.7.0")
 
-    implementation("io.github.junkfood02.youtubedl-android:library:0.16.0")
-    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.16.0")
+    implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
+    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
 }

@@ -1,6 +1,11 @@
 package com.davidbitner.watchlater.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -155,6 +160,7 @@ fun HomeScreen(onPlay: (String) -> Unit, onOpenSettings: () -> Unit) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Header(
                     summary = "${state.totalCount} videos · $downloadedCount downloaded · ${formatSize(state.usedBytes)}",
+                    detail = if (state.sync.running) "" else state.sync.detail,
                     status = when {
                         state.sync.running -> state.sync.message
                         waiting -> "Waiting for Wi-Fi…"
@@ -212,11 +218,13 @@ fun HomeScreen(onPlay: (String) -> Unit, onOpenSettings: () -> Unit) {
 private fun Header(
     summary: String,
     status: String,
+    detail: String,
     running: Boolean,
     progress: Float?,
     filter: Filter,
     onFilter: (Filter) -> Unit,
 ) {
+    var showDetail by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
         Text(
             summary,
@@ -226,9 +234,10 @@ private fun Header(
         if (status.isNotBlank()) {
             Spacer(Modifier.height(2.dp))
             Text(
-                status,
+                if (detail.isNotBlank()) "$status  ›" else status,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary,
+                modifier = if (detail.isNotBlank()) Modifier.clickable { showDetail = true } else Modifier,
             )
         }
         if (running) {
@@ -241,6 +250,22 @@ private fun Header(
             } else {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
+        }
+        if (showDetail) {
+            AlertDialog(
+                onDismissRequest = { showDetail = false },
+                title = { Text("Sync error") },
+                text = {
+                    SelectionContainer {
+                        Text(
+                            detail,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.verticalScroll(rememberScrollState()),
+                        )
+                    }
+                },
+                confirmButton = { TextButton(onClick = { showDetail = false }) { Text("Close") } },
+            )
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

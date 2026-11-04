@@ -31,7 +31,9 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             Repo.setSync(false, "Stopped")
             throw e
         } catch (e: Exception) {
-            Repo.setSync(false, "Sync failed: ${e.message?.lineSequence()?.firstOrNull()?.take(140) ?: "unknown error"}")
+            val full = e.message?.trim().orEmpty().ifBlank { e.toString() }
+            val last = full.lineSequence().map { it.trim() }.lastOrNull { it.isNotEmpty() } ?: "unknown error"
+            Repo.setSync(false, "Sync failed: ${last.take(140)}", full)
             Result.success()
         } finally {
             cancelHook?.dispose()

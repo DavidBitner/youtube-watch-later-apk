@@ -27,6 +27,7 @@ data class VideoItem(
 data class SyncStatus(
     val running: Boolean = false,
     val message: String = "",
+    val detail: String = "",
 )
 
 data class HomeState(

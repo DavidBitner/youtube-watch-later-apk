@@ -239,8 +239,8 @@ object Repo {
     }
 
     @Synchronized
-    fun setSync(running: Boolean, message: String) {
-        syncStatus = SyncStatus(running, message)
+    fun setSync(running: Boolean, message: String, detail: String = "") {
+        syncStatus = SyncStatus(running, message, detail)
         rebuild()
     }
 
