@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -23,8 +26,21 @@ jobs:
       - name: Build release APK
         run: gradle :app:assembleRelease --no-daemon
 
+      - name: Rename APK
+        run: cp app/build/outputs/apk/release/app-release.apk watch-later.apk
+
       - uses: actions/upload-artifact@v4
         with:
           name: watch-later-apk
-          path: app/build/outputs/apk/release/app-release.apk
+          path: watch-later.apk
           retention-days: 30
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest watch-later.apk \
+            --title "Watch Later (build ${{ github.run_number }})" \
+            --notes "Commit ${{ github.sha }}" \
+            --latest
