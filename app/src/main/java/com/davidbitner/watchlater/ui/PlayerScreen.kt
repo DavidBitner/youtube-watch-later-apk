@@ -42,10 +42,13 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.MediaSession
 import androidx.media3.ui.PlayerView
 import com.davidbitner.watchlater.data.Repo
 import kotlinx.coroutines.delay
@@ -72,7 +75,16 @@ fun PlayerScreen(startId: String, onClose: () -> Unit) {
     var speedMenu by remember { mutableStateOf(false) }
 
     val exo = remember {
-        ExoPlayer.Builder(context).build().apply {
+        ExoPlayer.Builder(context)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                true,
+            )
+            .setHandleAudioBecomingNoisy(true)
+            .build().apply {
             val items = playlist.map { (video, file) ->
                 MediaItem.Builder()
                     .setMediaId(video.id)
@@ -86,6 +98,9 @@ fun PlayerScreen(startId: String, onClose: () -> Unit) {
             playWhenReady = true
         }
     }
+
+    val mediaSession = remember(exo) { MediaSession.Builder(context, exo).build() }
+    DisposableEffect(mediaSession) { onDispose { mediaSession.release() } }
 
     LaunchedEffect(speed) { exo.setPlaybackSpeed(speed) }
 
