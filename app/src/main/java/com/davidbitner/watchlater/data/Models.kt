@@ -37,10 +37,17 @@ data class HomeState(
     val totalCount: Int = 0,
     val sync: SyncStatus = SyncStatus(),
     val noPlaylist: Boolean = false,
+    val storageMissing: Boolean = false,
+)
+
+data class MoveState(
+    val doneBytes: Long,
+    val totalBytes: Long,
 )
 
 data class AppSettings(
     val playlistUrl: String = "",
+    val storage: String = "",
     val history: List<PlaylistRef> = emptyList(),
     val speed: Float = 1.5f,
     val maxHeight: Int = 1080,

@@ -20,6 +20,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -39,12 +40,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.davidbitner.watchlater.data.Repo
 import com.davidbitner.watchlater.sync.SyncScheduler
 import com.davidbitner.watchlater.ytdlp.YtDlp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -58,6 +61,10 @@ fun SettingsScreen(onBack: () -> Unit) {
     var ytVersion by remember { mutableStateOf<String?>(null) }
     var updating by remember { mutableStateOf(false) }
     var confirmReset by remember { mutableStateOf(false) }
+    var pendingStorage by remember { mutableStateOf<String?>(null) }
+    val moveState by Repo.move.collectAsStateWithLifecycle()
+    val sdOk = remember(s.storage) { Repo.sdAvailable() }
+    val currentStorage = if (s.storage == "sd") "sd" else "internal"
 
     LaunchedEffect(Unit) {
         ytVersion = withContext(Dispatchers.IO) { YtDlp.version(context) }
@@ -90,12 +97,36 @@ fun SettingsScreen(onBack: () -> Unit) {
             Section("Playback")
             Label("Default speed")
             ChipRow(
-                options = listOf(1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f),
+                options = listOf(0.5f, 1f, 1.5f, 1.75f, 2f, 2.5f),
                 selected = s.speed,
                 label = { formatSpeed(it) },
             ) { v -> Repo.updateSettings { it.copy(speed = v) } }
 
             Section("Downloads")
+            Label("Storage location")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = currentStorage == "internal",
+                    onClick = { if (currentStorage != "internal") pendingStorage = "internal" },
+                    label = { Text("Internal") },
+                )
+                FilterChip(
+                    selected = currentStorage == "sd",
+                    enabled = sdOk || currentStorage == "sd",
+                    onClick = {
+                        if (currentStorage != "sd") {
+                            if (sdOk) pendingStorage = "sd"
+                            else scope.launch { snackbar.showSnackbar("No SD card found") }
+                        }
+                    },
+                    label = { Text("SD card") },
+                )
+            }
+            Hint(
+                if (currentStorage == "sd" && !sdOk) "SD card not found"
+                else "${formatSize(Repo.freeBytes(currentStorage))} free · changing moves your downloaded videos",
+            )
+
             Label("Maximum quality")
             ChipRow(
                 options = listOf(480, 720, 1080),
@@ -164,6 +195,52 @@ fun SettingsScreen(onBack: () -> Unit) {
             OutlinedButton(onClick = { confirmReset = true }) { Text("Delete all downloads") }
             Spacer(Modifier.height(24.dp))
         }
+    }
+
+    pendingStorage?.let { target ->
+        val stored = remember(target) { Repo.storedBytes() }
+        val name = if (target == "sd") "SD card" else "internal storage"
+        AlertDialog(
+            onDismissRequest = { pendingStorage = null },
+            title = { Text("Use $name?") },
+            text = {
+                Text(
+                    if (stored > 0) "${formatSize(stored)} of downloaded videos will be moved. Keep the app open until it finishes."
+                    else "New downloads will be saved there.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingStorage = null
+                    scope.launch {
+                        SyncScheduler.pause(context)
+                        delay(1500)
+                        val error = withContext(Dispatchers.IO) { Repo.moveStorage(target) }
+                        SyncScheduler.schedulePeriodic(context)
+                        snackbar.showSnackbar(error ?: "Storage changed to $name")
+                    }
+                }) { Text("Continue") }
+            },
+            dismissButton = { TextButton(onClick = { pendingStorage = null }) { Text("Cancel") } },
+        )
+    }
+
+    moveState?.let { m ->
+        AlertDialog(
+            onDismissRequest = {},
+            properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+            title = { Text("Moving videos") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LinearProgressIndicator(
+                        progress = { if (m.totalBytes > 0) (m.doneBytes.toFloat() / m.totalBytes).coerceIn(0f, 1f) else 0f },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text("${formatSize(m.doneBytes)} of ${formatSize(m.totalBytes)}")
+                }
+            },
+            confirmButton = {},
+        )
     }
 
     if (confirmReset) {

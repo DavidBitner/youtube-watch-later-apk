@@ -2,10 +2,13 @@ package com.davidbitner.watchlater.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Environment
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 
 object Repo {
     private val LIST_REGEX = Regex("[?&]list=([A-Za-z0-9_-]+)")
@@ -13,6 +16,7 @@ object Repo {
 
     private lateinit var settingsPrefs: SharedPreferences
     private lateinit var watchPrefs: SharedPreferences
+    private lateinit var appContext: Context
     private lateinit var baseDir: File
     private lateinit var filesRoot: File
     private lateinit var playlistFile: File
@@ -28,9 +32,14 @@ object Repo {
     private var downloadingId: String? = null
     private var downloadProgress: Float = 0f
     private var syncStatus = SyncStatus()
+    private var storageMissing = false
+
+    @Volatile
+    private var moving = false
 
     val settings = MutableStateFlow(AppSettings())
     val home = MutableStateFlow(HomeState())
+    val move = MutableStateFlow<MoveState?>(null)
 
     @Synchronized
     fun init(context: Context) {
@@ -38,9 +47,12 @@ object Repo {
         val app = context.applicationContext
         settingsPrefs = app.getSharedPreferences("settings", Context.MODE_PRIVATE)
         watchPrefs = app.getSharedPreferences("watch", Context.MODE_PRIVATE)
+        appContext = app
         filesRoot = app.filesDir
-        baseDir = File(app.getExternalFilesDir(null) ?: app.filesDir, "videos")
         settings.value = readSettings()
+        if (settings.value.storage.isBlank() && sdRoot() == null) {
+            updateSettings { it.copy(storage = "internal") }
+        }
         activate()
         initialised = true
     }
@@ -50,8 +62,116 @@ object Repo {
         return id ?: Integer.toHexString(url.hashCode())
     }
 
+    private fun effectiveStorage(): String = if (settings.value.storage == "sd") "sd" else "internal"
+
+    private fun internalRoot(): File =
+        appContext.getExternalFilesDirs(null).firstOrNull() ?: appContext.filesDir
+
+    private fun sdRoot(): File? {
+        val dirs = appContext.getExternalFilesDirs(null)
+        for (i in 1 until dirs.size) {
+            val d = dirs[i] ?: continue
+            if (Environment.getExternalStorageState(d) == Environment.MEDIA_MOUNTED &&
+                Environment.isExternalStorageRemovable(d)
+            ) return d
+        }
+        return null
+    }
+
+    private fun baseDirFor(type: String): File? =
+        (if (type == "sd") sdRoot() else internalRoot())?.let { File(it, "videos") }
+
+    fun sdAvailable(): Boolean = sdRoot() != null
+
+    fun currentStorage(): String = effectiveStorage()
+
+    fun freeBytes(type: String): Long =
+        (if (type == "sd") sdRoot() else internalRoot())?.usableSpace ?: 0L
+
+    fun isMoving(): Boolean = moving
+
+    fun storageMissing(): Boolean = storageMissing
+
+    @Synchronized
+    fun recheckStorage() {
+        val missing = baseDirFor(effectiveStorage()) == null
+        if (missing != storageMissing) activate()
+    }
+
+    @Synchronized
+    fun setStorage(type: String) {
+        updateSettings { it.copy(storage = type) }
+        activate()
+    }
+
+    @Synchronized
+    fun storedBytes(): Long =
+        if (storageMissing || !baseDir.exists()) 0L
+        else baseDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+
+    fun moveStorage(type: String): String? {
+        if (moving) return "A move is already running"
+        if (type == effectiveStorage()) return null
+        val targetBase = baseDirFor(type) ?: return "SD card not available"
+        val sourceBase = synchronized(this) { baseDir }
+        moving = true
+        try {
+            val sources = if (sourceBase.exists()) sourceBase.walkTopDown().filter { it.isFile }.toList() else emptyList()
+            val total = sources.sumOf { it.length() }
+            targetBase.mkdirs()
+            if (targetBase.usableSpace < total + 100L * 1024 * 1024) {
+                return "Not enough free space at the destination"
+            }
+            var done = 0L
+            move.value = MoveState(done, total)
+            for (f in sources) {
+                val dest = File(targetBase, f.relativeTo(sourceBase).path)
+                dest.parentFile?.mkdirs()
+                if (f.renameTo(dest)) {
+                    done += dest.length()
+                } else {
+                    try {
+                        FileInputStream(f).use { input ->
+                            FileOutputStream(dest).use { output ->
+                                val buffer = ByteArray(1 shl 20)
+                                var lastEmit = done
+                                while (true) {
+                                    val n = input.read(buffer)
+                                    if (n < 0) break
+                                    output.write(buffer, 0, n)
+                                    done += n
+                                    if (done - lastEmit > 8L * 1024 * 1024) {
+                                        move.value = MoveState(done, total)
+                                        lastEmit = done
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        dest.delete()
+                        return "Move failed: ${e.message ?: "unknown error"}. Some videos may need to download again."
+                    }
+                    f.delete()
+                }
+                move.value = MoveState(done, total)
+            }
+            sourceBase.deleteRecursively()
+            synchronized(this) {
+                updateSettings { it.copy(storage = type) }
+                activate()
+            }
+            return null
+        } finally {
+            moving = false
+            move.value = null
+        }
+    }
+
     private fun activate() {
         val url = settings.value.playlistUrl
+        val resolved = baseDirFor(effectiveStorage())
+        storageMissing = resolved == null
+        baseDir = resolved ?: File(appContext.filesDir, "videos_unavailable")
         videos = emptyList()
         title = "Watch Later"
         files = emptyMap()
@@ -66,7 +186,7 @@ object Repo {
         }
         val key = keyOf(url)
         playlistFile = File(filesRoot, "playlist_$key.json")
-        videosDir = File(baseDir, key).also { it.mkdirs() }
+        videosDir = File(baseDir, key).also { if (!storageMissing) it.mkdirs() }
         loadPlaylist()
         refreshFiles()
     }
@@ -86,6 +206,7 @@ object Repo {
         updateSettings {
             it.copy(
                 playlistUrl = url,
+                storage = it.storage.ifBlank { "internal" },
                 history = listOf(ref) + it.history.filter { h -> keyOf(h.url) != key },
             )
         }
@@ -112,6 +233,7 @@ object Repo {
         val d = AppSettings()
         return AppSettings(
             playlistUrl = settingsPrefs.getString("playlistUrl", d.playlistUrl) ?: d.playlistUrl,
+            storage = settingsPrefs.getString("storage", d.storage) ?: d.storage,
             speed = settingsPrefs.getFloat("speed", d.speed),
             maxHeight = settingsPrefs.getInt("maxHeight", d.maxHeight),
             capGb = settingsPrefs.getInt("capGb", d.capGb),
@@ -139,6 +261,7 @@ object Repo {
         settings.value = s
         settingsPrefs.edit()
             .putString("playlistUrl", s.playlistUrl)
+            .putString("storage", s.storage)
             .putFloat("speed", s.speed)
             .putInt("maxHeight", s.maxHeight)
             .putInt("capGb", s.capGb)
@@ -334,6 +457,6 @@ object Repo {
                 watched = isWatched(v.id),
             )
         }
-        home.value = HomeState(title, items, usedBytes, videos.size, syncStatus, settings.value.playlistUrl.isBlank())
+        home.value = HomeState(title, items, usedBytes, videos.size, syncStatus, settings.value.playlistUrl.isBlank(), storageMissing)
     }
 }

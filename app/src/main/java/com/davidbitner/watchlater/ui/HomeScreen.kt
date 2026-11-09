@@ -97,6 +97,7 @@ fun HomeScreen(onPlay: (String) -> Unit, onOpenSettings: () -> Unit) {
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
+        Repo.recheckStorage()
         if (!Repo.home.value.noPlaylist && Repo.home.value.totalCount == 0) SyncScheduler.syncNow(context)
     }
 
@@ -162,6 +163,7 @@ fun HomeScreen(onPlay: (String) -> Unit, onOpenSettings: () -> Unit) {
                     summary = "${state.totalCount} videos · $downloadedCount downloaded · ${formatSize(state.usedBytes)}",
                     detail = if (state.sync.running) "" else state.sync.detail,
                     status = when {
+                        state.storageMissing -> "SD card not found. Insert it to see your downloads."
                         state.sync.running -> state.sync.message
                         waiting -> "Waiting for Wi-Fi…"
                         else -> state.sync.message

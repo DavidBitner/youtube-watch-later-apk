@@ -50,6 +50,12 @@ object SyncScheduler {
             .enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, request)
     }
 
+    fun pause(context: Context) {
+        val wm = WorkManager.getInstance(context)
+        wm.cancelUniqueWork(MANUAL)
+        wm.cancelUniqueWork(PERIODIC)
+    }
+
     fun stop(context: Context) {
         val wm = WorkManager.getInstance(context)
         wm.cancelUniqueWork(MANUAL)

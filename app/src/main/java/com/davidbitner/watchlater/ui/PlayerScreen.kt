@@ -100,7 +100,6 @@ fun PlayerScreen(startId: String, onClose: () -> Unit) {
     }
 
     val mediaSession = remember(exo) { MediaSession.Builder(context, exo).build() }
-    DisposableEffect(mediaSession) { onDispose { mediaSession.release() } }
 
     LaunchedEffect(speed) { exo.setPlaybackSpeed(speed) }
 
@@ -133,6 +132,7 @@ fun PlayerScreen(startId: String, onClose: () -> Unit) {
         onDispose {
             Repo.savePosition(currentId, exo.currentPosition, exo.duration.coerceAtLeast(0L))
             exo.removeListener(listener)
+            mediaSession.release()
             exo.release()
         }
     }

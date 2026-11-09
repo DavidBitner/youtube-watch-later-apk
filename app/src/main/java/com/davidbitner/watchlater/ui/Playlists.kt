@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,6 +40,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.davidbitner.watchlater.data.PlaylistRef
 import com.davidbitner.watchlater.data.Repo
 import com.davidbitner.watchlater.sync.SyncScheduler
@@ -108,6 +110,29 @@ fun WelcomeScreen(onOpenSettings: () -> Unit) {
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(24.dp))
+            val settings by Repo.settings.collectAsStateWithLifecycle()
+            val sdOk = remember { Repo.sdAvailable() }
+            if (sdOk) {
+                Text(
+                    "Where should videos be saved?",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = settings.storage != "sd",
+                        onClick = { Repo.setStorage("internal") },
+                        label = { Text("Internal · ${formatSize(Repo.freeBytes("internal"))} free") },
+                    )
+                    FilterChip(
+                        selected = settings.storage == "sd",
+                        onClick = { Repo.setStorage("sd") },
+                        label = { Text("SD card · ${formatSize(Repo.freeBytes("sd"))} free") },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+            }
             AddPlaylistForm(buttonLabel = "Start")
             Spacer(Modifier.height(16.dp))
             TextButton(onClick = onOpenSettings) {
