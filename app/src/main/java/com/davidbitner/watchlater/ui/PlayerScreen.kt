@@ -8,12 +8,16 @@ import android.view.View
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.DropdownMenu
@@ -27,11 +31,15 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -53,7 +61,8 @@ import androidx.media3.ui.PlayerView
 import com.davidbitner.watchlater.data.Repo
 import kotlinx.coroutines.delay
 
-private val SPEEDS = listOf(0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f)
+private const val SEEK_BACK_MS = 5_000L
+private const val SEEK_FORWARD_MS = 15_000L
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
@@ -73,6 +82,10 @@ fun PlayerScreen(startId: String, onClose: () -> Unit) {
     var speed by remember { mutableFloatStateOf(Repo.settings.value.speed) }
     var controlsVisible by remember { mutableStateOf(true) }
     var speedMenu by remember { mutableStateOf(false) }
+    var playerView by remember { mutableStateOf<PlayerView?>(null) }
+    var seekAccum by remember { mutableIntStateOf(0) }
+    var seekTick by remember { mutableIntStateOf(0) }
+    var lastSeekAt by remember { mutableLongStateOf(0L) }
 
     val exo = remember {
         ExoPlayer.Builder(context)
@@ -100,6 +113,13 @@ fun PlayerScreen(startId: String, onClose: () -> Unit) {
     }
 
     val mediaSession = remember(exo) { MediaSession.Builder(context, exo).build() }
+
+    LaunchedEffect(seekTick) {
+        if (seekTick > 0) {
+            delay(800)
+            seekAccum = 0
+        }
+    }
 
     LaunchedEffect(speed) { exo.setPlaybackSpeed(speed) }
 
@@ -155,6 +175,7 @@ fun PlayerScreen(startId: String, onClose: () -> Unit) {
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 PlayerView(ctx).apply {
+                    playerView = this
                     this.player = exo
                     keepScreenOn = true
                     setShowNextButton(true)
@@ -168,6 +189,44 @@ fun PlayerScreen(startId: String, onClose: () -> Unit) {
                 }
             },
         )
+
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 80.dp, bottom = 120.dp),
+        ) {
+            SeekZone(
+                modifier = Modifier.weight(0.38f).fillMaxHeight(),
+                label = if (seekAccum < 0) "−${-seekAccum}s" else null,
+                onToggleControls = {
+                    playerView?.let { if (it.isControllerFullyVisible) it.hideController() else it.showController() }
+                },
+                isRepeat = { System.currentTimeMillis() - lastSeekAt < 700L },
+                onSeek = {
+                    exo.seekTo((exo.currentPosition - SEEK_BACK_MS).coerceAtLeast(0L))
+                    seekAccum = if (seekAccum < 0) seekAccum - (SEEK_BACK_MS / 1000).toInt() else -(SEEK_BACK_MS / 1000).toInt()
+                    lastSeekAt = System.currentTimeMillis()
+                    seekTick++
+                },
+            )
+            Spacer(Modifier.weight(0.24f))
+            SeekZone(
+                modifier = Modifier.weight(0.38f).fillMaxHeight(),
+                label = if (seekAccum > 0) "+${seekAccum}s" else null,
+                onToggleControls = {
+                    playerView?.let { if (it.isControllerFullyVisible) it.hideController() else it.showController() }
+                },
+                isRepeat = { System.currentTimeMillis() - lastSeekAt < 700L },
+                onSeek = {
+                    val target = exo.currentPosition + SEEK_FORWARD_MS
+                    val duration = exo.duration
+                    exo.seekTo(if (duration > 0) minOf(target, duration) else target)
+                    seekAccum = if (seekAccum > 0) seekAccum + (SEEK_FORWARD_MS / 1000).toInt() else (SEEK_FORWARD_MS / 1000).toInt()
+                    lastSeekAt = System.currentTimeMillis()
+                    seekTick++
+                },
+            )
+        }
 
         AnimatedVisibility(
             visible = controlsVisible,
@@ -196,7 +255,7 @@ fun PlayerScreen(startId: String, onClose: () -> Unit) {
                         Text(formatSpeed(speed), color = Color.White, fontWeight = FontWeight.Bold)
                     }
                     DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
-                        SPEEDS.forEach { s ->
+                        SPEED_OPTIONS.forEach { s ->
                             DropdownMenuItem(
                                 text = { Text(formatSpeed(s)) },
                                 onClick = { speed = s; speedMenu = false },
@@ -205,6 +264,37 @@ fun PlayerScreen(startId: String, onClose: () -> Unit) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SeekZone(
+    modifier: Modifier,
+    label: String?,
+    onToggleControls: () -> Unit,
+    isRepeat: () -> Boolean,
+    onSeek: () -> Unit,
+) {
+    Box(
+        modifier = modifier.pointerInput(Unit) {
+            detectTapGestures(
+                onTap = { if (isRepeat()) onSeek() else onToggleControls() },
+                onDoubleTap = { onSeek() },
+            )
+        },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (label != null) {
+            Text(
+                text = label,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0x99000000))
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            )
         }
     }
 }

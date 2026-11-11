@@ -97,7 +97,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             Section("Playback")
             Label("Default speed")
             ChipRow(
-                options = listOf(0.5f, 1f, 1.5f, 1.75f, 2f, 2.5f),
+                options = SPEED_OPTIONS,
                 selected = s.speed,
                 label = { formatSpeed(it) },
             ) { v -> Repo.updateSettings { it.copy(speed = v) } }
