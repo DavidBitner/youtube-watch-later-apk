@@ -176,6 +176,7 @@ fun PlayerScreen(startId: String, onClose: () -> Unit) {
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     playerView = this
+                    findViewById<View>(androidx.media3.ui.R.id.exo_settings)?.visibility = View.GONE
                     this.player = exo
                     keepScreenOn = true
                     setShowNextButton(true)
