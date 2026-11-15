@@ -7,6 +7,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.davidbitner.watchlater.data.Repo
@@ -21,10 +22,14 @@ import kotlinx.coroutines.launch
 object Playback {
     private var exo: ExoPlayer? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var saverStarted = false
     private var durations: Map<String, Long> = emptyMap()
 
     private val _currentId = MutableStateFlow<String?>(null)
     val currentId: StateFlow<String?> = _currentId
+
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying
@@ -77,15 +82,27 @@ object Playback {
                 if (playbackState == Player.STATE_ENDED) _currentId.value?.let { Repo.markWatched(it, true) }
             }
 
+            override fun onPlayerError(error: PlaybackException) {
+                val cause = error.cause?.message
+                _error.value = buildString {
+                    append(error.errorCodeName)
+                    error.message?.let { append(": ").append(it) }
+                    if (cause != null && cause != error.message) append(" (").append(cause).append(")")
+                }
+            }
+
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _isPlaying.value = isPlaying
                 if (!isPlaying) saveCurrent()
             }
         })
-        scope.launch {
-            while (true) {
-                delay(5000)
-                if (exo?.isPlaying == true) saveCurrent()
+        if (!saverStarted) {
+            saverStarted = true
+            scope.launch {
+                while (true) {
+                    delay(5000)
+                    if (exo?.isPlaying == true) saveCurrent()
+                }
             }
         }
         return player
@@ -102,14 +119,17 @@ object Playback {
         Repo.savePosition(id, p.currentPosition, duration)
     }
 
-    fun play(context: Context, id: String) {
+    fun play(context: Context, id: String, reload: Boolean = false) {
         val app = context.applicationContext
         val p = player(app)
-        if (_currentId.value == id && p.mediaItemCount > 0) {
+        if (!reload && _currentId.value == id && p.mediaItemCount > 0 && p.playerError == null) {
+            if (p.playbackState == Player.STATE_IDLE) p.prepare()
             if (p.playbackState == Player.STATE_ENDED) p.seekTo(0L)
             p.play()
+            app.startService(Intent(app, PlaybackService::class.java))
             return
         }
+        _error.value = null
         val playlist = Repo.playable()
         val index = playlist.indexOfFirst { it.first.id == id }
         if (index < 0) return
@@ -146,10 +166,11 @@ object Playback {
         val app = context.applicationContext
         exo?.let {
             saveCurrent()
-            it.stop()
-            it.clearMediaItems()
+            it.release()
         }
+        exo = null
         _currentId.value = null
+        _error.value = null
         _isPlaying.value = false
         app.stopService(Intent(app, PlaybackService::class.java))
     }

@@ -9,6 +9,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Spacer
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -39,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -69,6 +72,7 @@ fun PlayerScreen(onClose: () -> Unit) {
     val context = LocalContext.current
     val exo = remember { Playback.player(context) }
     val currentId by Playback.currentId.collectAsStateWithLifecycle()
+    val error by Playback.error.collectAsStateWithLifecycle()
     var speed by remember { mutableFloatStateOf(exo.playbackParameters.speed) }
     var controlsVisible by remember { mutableStateOf(true) }
     var speedMenu by remember { mutableStateOf(false) }
@@ -90,11 +94,6 @@ fun PlayerScreen(onClose: () -> Unit) {
 
     LaunchedEffect(speed) { exo.setPlaybackSpeed(speed) }
 
-    DisposableEffect(playerView) {
-        val view = playerView
-        onDispose { view?.player = null }
-    }
-
     val activity = remember(context) { context.findActivity() }
     DisposableEffect(Unit) {
         val window = activity?.window
@@ -111,6 +110,8 @@ fun PlayerScreen(onClose: () -> Unit) {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
+            update = { view -> if (view.player !== exo) view.player = exo },
+            onRelease = { view -> view.player = null },
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     playerView = this
@@ -165,6 +166,28 @@ fun PlayerScreen(onClose: () -> Unit) {
                     seekTick++
                 },
             )
+        }
+
+        error?.let { message ->
+            Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(24.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xCC000000))
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = message,
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                )
+                TextButton(onClick = { currentId?.let { Playback.play(context, it, reload = true) } }) {
+                    Text("Retry")
+                }
+            }
         }
 
         AnimatedVisibility(
