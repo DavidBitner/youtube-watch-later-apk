@@ -7,7 +7,21 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.davidbitner.watchlater.playback.Playback
+import com.davidbitner.watchlater.ui.MiniPlayer
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -34,19 +48,42 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun AppRoot() {
+    val context = LocalContext.current
     var showSettings by rememberSaveable { mutableStateOf(false) }
-    var playingId by rememberSaveable { mutableStateOf<String?>(null) }
+    var showPlayer by rememberSaveable { mutableStateOf(false) }
+    val playingId by Playback.currentId.collectAsStateWithLifecycle()
 
-    val id = playingId
-    when {
-        id != null -> PlayerScreen(startId = id, onClose = { playingId = null })
-        showSettings -> {
-            BackHandler { showSettings = false }
-            SettingsScreen(onBack = { showSettings = false })
+    LaunchedEffect(playingId) {
+        if (playingId == null) showPlayer = false
+    }
+
+    if (showPlayer && playingId != null) {
+        PlayerScreen(onClose = { showPlayer = false })
+    } else {
+        val miniVisible = playingId != null
+        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            Box(
+                Modifier
+                    .weight(1f)
+                    .then(
+                        if (miniVisible) Modifier.consumeWindowInsets(WindowInsets.navigationBars)
+                        else Modifier
+                    ),
+            ) {
+                if (showSettings) {
+                    BackHandler { showSettings = false }
+                    SettingsScreen(onBack = { showSettings = false })
+                } else {
+                    HomeScreen(
+                        onPlay = {
+                            Playback.play(context, it)
+                            showPlayer = true
+                        },
+                        onOpenSettings = { showSettings = true },
+                    )
+                }
+            }
+            if (miniVisible) MiniPlayer(onExpand = { showPlayer = true })
         }
-        else -> HomeScreen(
-            onPlay = { playingId = it },
-            onOpenSettings = { showSettings = true },
-        )
     }
 }

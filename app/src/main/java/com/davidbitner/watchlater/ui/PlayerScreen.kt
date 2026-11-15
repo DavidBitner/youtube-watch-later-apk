@@ -3,7 +3,6 @@ package com.davidbitner.watchlater.ui
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import android.net.Uri
 import android.view.View
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -50,15 +49,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.media3.common.AudioAttributes
-import androidx.media3.common.C
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.session.MediaSession
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.ui.PlayerView
 import com.davidbitner.watchlater.data.Repo
+import com.davidbitner.watchlater.playback.Playback
 import kotlinx.coroutines.delay
 
 private const val SEEK_BACK_MS = 5_000L
@@ -70,16 +64,12 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
-private fun resumePosition(id: String): Long =
-    if (Repo.isWatched(id)) 0L else Repo.positionMs(id)
-
 @Composable
-fun PlayerScreen(startId: String, onClose: () -> Unit) {
+fun PlayerScreen(onClose: () -> Unit) {
     val context = LocalContext.current
-    val playlist = remember { Repo.playable() }
-    val startIndex = remember { playlist.indexOfFirst { it.first.id == startId }.coerceAtLeast(0) }
-    var currentId by remember { mutableStateOf(playlist.getOrNull(startIndex)?.first?.id ?: startId) }
-    var speed by remember { mutableFloatStateOf(Repo.settings.value.speed) }
+    val exo = remember { Playback.player(context) }
+    val currentId by Playback.currentId.collectAsStateWithLifecycle()
+    var speed by remember { mutableFloatStateOf(exo.playbackParameters.speed) }
     var controlsVisible by remember { mutableStateOf(true) }
     var speedMenu by remember { mutableStateOf(false) }
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
@@ -87,32 +77,9 @@ fun PlayerScreen(startId: String, onClose: () -> Unit) {
     var seekTick by remember { mutableIntStateOf(0) }
     var lastSeekAt by remember { mutableLongStateOf(0L) }
 
-    val exo = remember {
-        ExoPlayer.Builder(context)
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(C.USAGE_MEDIA)
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                    .build(),
-                true,
-            )
-            .setHandleAudioBecomingNoisy(true)
-            .build().apply {
-            val items = playlist.map { (video, file) ->
-                MediaItem.Builder()
-                    .setMediaId(video.id)
-                    .setUri(Uri.fromFile(file))
-                    .setMediaMetadata(MediaMetadata.Builder().setTitle(video.title).build())
-                    .build()
-            }
-            setMediaItems(items, startIndex, resumePosition(startId))
-            setPlaybackSpeed(speed)
-            prepare()
-            playWhenReady = true
-        }
+    LaunchedEffect(currentId) {
+        if (currentId == null) onClose()
     }
-
-    val mediaSession = remember(exo) { MediaSession.Builder(context, exo).build() }
 
     LaunchedEffect(seekTick) {
         if (seekTick > 0) {
@@ -123,38 +90,9 @@ fun PlayerScreen(startId: String, onClose: () -> Unit) {
 
     LaunchedEffect(speed) { exo.setPlaybackSpeed(speed) }
 
-    LaunchedEffect(exo) {
-        while (true) {
-            delay(5000)
-            if (exo.isPlaying) {
-                Repo.savePosition(currentId, exo.currentPosition, exo.duration.coerceAtLeast(0L))
-            }
-        }
-    }
-
-    DisposableEffect(exo) {
-        val listener = object : Player.Listener {
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                val newId = mediaItem?.mediaId ?: return
-                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
-                    Repo.markWatched(currentId, true)
-                    val saved = resumePosition(newId)
-                    if (saved > 5000L) exo.seekTo(saved)
-                }
-                currentId = newId
-            }
-
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_ENDED) Repo.markWatched(currentId, true)
-            }
-        }
-        exo.addListener(listener)
-        onDispose {
-            Repo.savePosition(currentId, exo.currentPosition, exo.duration.coerceAtLeast(0L))
-            exo.removeListener(listener)
-            mediaSession.release()
-            exo.release()
-        }
+    DisposableEffect(playerView) {
+        val view = playerView
+        onDispose { view?.player = null }
     }
 
     val activity = remember(context) { context.findActivity() }
@@ -168,7 +106,7 @@ fun PlayerScreen(startId: String, onClose: () -> Unit) {
 
     BackHandler(onBack = onClose)
 
-    val title = playlist.firstOrNull { it.first.id == currentId }?.first?.title.orEmpty()
+    val title = currentId?.let { Repo.video(it)?.title }.orEmpty()
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(

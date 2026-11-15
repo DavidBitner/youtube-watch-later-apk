@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -24,6 +25,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -69,8 +71,22 @@ import coil.compose.AsyncImage
 import com.davidbitner.watchlater.data.DownloadState
 import com.davidbitner.watchlater.data.Repo
 import com.davidbitner.watchlater.data.VideoItem
+import com.davidbitner.watchlater.playback.Playback
 import com.davidbitner.watchlater.sync.SyncScheduler
 import kotlinx.coroutines.launch
+
+private enum class FocusKind { CURRENT, NEXT }
+
+private fun computeFocus(items: List<VideoItem>, lastId: String?): Pair<String, FocusKind>? {
+    if (lastId == null) return null
+    val idx = items.indexOfFirst { it.video.id == lastId }
+    if (idx < 0) return null
+    val item = items[idx]
+    if (!item.watched && item.state == DownloadState.DOWNLOADED) return lastId to FocusKind.CURRENT
+    val after = items.drop(idx + 1).filter { it.state == DownloadState.DOWNLOADED }
+    val next = after.firstOrNull { !it.watched } ?: after.firstOrNull() ?: return null
+    return next.video.id to FocusKind.NEXT
+}
 
 private enum class Filter(val label: String) {
     ALL("All"),
@@ -113,6 +129,23 @@ fun HomeScreen(onPlay: (String) -> Unit, onOpenSettings: () -> Unit) {
     }
     val busy = state.sync.running || waiting
 
+    val lastId = remember { Repo.lastPlayedId() }
+    val nowId by Playback.currentId.collectAsStateWithLifecycle()
+    val nowPlaying by Playback.isPlaying.collectAsStateWithLifecycle()
+    val focus = remember(state.items, lastId) { computeFocus(state.items, lastId) }
+    val gridState = rememberLazyGridState()
+    var focusDone by remember { mutableStateOf(false) }
+
+    LaunchedEffect(focus?.first, visible.size) {
+        if (!focusDone && focus != null) {
+            val idx = visible.indexOfFirst { it.video.id == focus.first }
+            if (idx >= 0) {
+                gridState.scrollToItem(1 + idx)
+                focusDone = true
+            }
+        }
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
@@ -148,6 +181,7 @@ fun HomeScreen(onPlay: (String) -> Unit, onOpenSettings: () -> Unit) {
     ) { padding ->
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 400.dp),
+            state = gridState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 start = 16.dp,
@@ -191,8 +225,15 @@ fun HomeScreen(onPlay: (String) -> Unit, onOpenSettings: () -> Unit) {
             }
 
             items(visible, key = { it.video.id }) { item ->
+                val tag = when {
+                    focus == null || focus.first != item.video.id -> null
+                    focus.second == FocusKind.NEXT -> "Up next"
+                    item.video.id == nowId -> if (nowPlaying) "Now playing" else "Paused"
+                    else -> "Last watched"
+                }
                 VideoRow(
                     item = item,
+                    tag = tag,
                     onClick = {
                         when (item.state) {
                             DownloadState.DOWNLOADED -> onPlay(item.video.id)
@@ -285,6 +326,7 @@ private fun Header(
 @Composable
 private fun VideoRow(
     item: VideoItem,
+    tag: String?,
     onClick: () -> Unit,
     onDownload: () -> Unit,
     onDelete: () -> Unit,
@@ -298,6 +340,9 @@ private fun VideoRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
+            .background(
+                if (tag != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent
+            )
             .clickable(onClick = onClick)
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -326,6 +371,31 @@ private fun VideoRow(
                     .fillMaxSize()
                     .alpha(if (available) 1f else 0.4f),
             )
+            val fraction = when {
+                item.watched -> 1f
+                item.positionMs > 0 && video.durationSec > 0 ->
+                    (item.positionMs / (video.durationSec * 1000f)).coerceIn(0f, 1f)
+                else -> 0f
+            }
+            if (fraction > 0f) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxHeight()
+                        .fillMaxWidth(fraction)
+                        .background(Color(if (item.watched) 0xB37A0F1C else 0x8C7A0F1C)),
+                ) {
+                    if (!item.watched) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .fillMaxHeight()
+                                .width(2.dp)
+                                .background(MaterialTheme.colorScheme.primary),
+                        )
+                    }
+                }
+            }
             Text(
                 text = formatDuration(video.durationSec),
                 style = MaterialTheme.typography.labelMedium,
@@ -354,27 +424,24 @@ private fun VideoRow(
                         modifier = Modifier.size(12.dp),
                     )
                 }
-            } else if (item.positionMs > 0 && video.durationSec > 0) {
-                LinearProgressIndicator(
-                    progress = { (item.positionMs / (video.durationSec * 1000f)).coerceIn(0f, 1f) },
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .height(3.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = Color(0x66000000),
-                )
             }
         }
 
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
+            if (tag != null) {
+                Text(
+                    text = tag.uppercase(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
             Text(
                 text = video.title,
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                color = if (available) MaterialTheme.colorScheme.onSurface
+                color = if (available && !item.watched) MaterialTheme.colorScheme.onSurface
                 else MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (video.channel.isNotBlank()) {

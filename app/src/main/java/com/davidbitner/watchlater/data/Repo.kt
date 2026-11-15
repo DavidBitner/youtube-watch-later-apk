@@ -373,6 +373,12 @@ object Repo {
 
     fun positionMs(id: String): Long = watchPrefs.getLong("pos_$id", 0L)
 
+    fun lastPlayedId(): String? = watchPrefs.getString("last", null)
+
+    fun setLastPlayed(id: String) {
+        watchPrefs.edit().putString("last", id).apply()
+    }
+
     @Synchronized
     fun savePosition(id: String, positionMs: Long, durationMs: Long) {
         if (durationMs > 0 && positionMs >= durationMs * 95 / 100) {
