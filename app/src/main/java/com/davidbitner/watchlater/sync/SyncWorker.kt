@@ -66,6 +66,9 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         var done = 0
         var failed = 0
         var stoppedReason: String? = null
+        var streak = 0
+        var retriedUpdate = false
+        var lastError = ""
 
         for ((index, video) in queue.withIndex()) {
             if (isStopped) break
@@ -93,9 +96,23 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                     }
                 }
                 done++
+                streak = 0
             } catch (e: Exception) {
                 if (isStopped) break
                 failed++
+                streak++
+                lastError = "${video.title}\n${e.message?.trim().orEmpty().ifBlank { e.toString() }}".takeLast(2000)
+                if (streak == 2 && !retriedUpdate) {
+                    retriedUpdate = true
+                    try {
+                        YtDlp.update(ctx)
+                    } catch (_: Exception) {
+                    }
+                }
+                if (streak >= 4) {
+                    stoppedReason = "Several downloads failed in a row. YouTube may be limiting this device, try again later"
+                    break
+                }
             } finally {
                 currentId = null
                 Repo.setDownloading(null, 0f)
@@ -110,7 +127,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             done > 0 -> "Up to date · $done new"
             else -> "Up to date"
         }
-        Repo.setSync(false, message)
+        Repo.setSync(false, message, if (failed > 0) lastError else "")
         return Result.success()
     }
 

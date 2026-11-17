@@ -95,6 +95,8 @@ object YtDlp {
         request.addOption("--retries", "5")
         request.addOption("--fragment-retries", "10")
         request.addOption("-N", "4")
+        request.addOption("--sleep-interval", "3")
+        request.addOption("--max-sleep-interval", "8")
 
         var stream = 0
         var last = 0f

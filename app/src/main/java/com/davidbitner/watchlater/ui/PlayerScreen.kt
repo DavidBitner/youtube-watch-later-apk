@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -130,42 +131,78 @@ fun PlayerScreen(onClose: () -> Unit) {
             },
         )
 
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 80.dp, bottom = 120.dp),
+                .padding(top = 80.dp, bottom = 60.dp),
         ) {
-            SeekZone(
-                modifier = Modifier.weight(0.38f).fillMaxHeight(),
-                label = if (seekAccum < 0) "−${-seekAccum}s" else null,
-                onToggleControls = {
-                    playerView?.let { if (it.isControllerFullyVisible) it.hideController() else it.showController() }
-                },
-                isRepeat = { System.currentTimeMillis() - lastSeekAt < 700L },
-                onSeek = {
-                    exo.seekTo((exo.currentPosition - SEEK_BACK_MS).coerceAtLeast(0L))
-                    seekAccum = if (seekAccum < 0) seekAccum - (SEEK_BACK_MS / 1000).toInt() else -(SEEK_BACK_MS / 1000).toInt()
-                    lastSeekAt = System.currentTimeMillis()
-                    seekTick++
-                },
-            )
-            Spacer(Modifier.weight(0.24f))
-            SeekZone(
-                modifier = Modifier.weight(0.38f).fillMaxHeight(),
-                label = if (seekAccum > 0) "+${seekAccum}s" else null,
-                onToggleControls = {
-                    playerView?.let { if (it.isControllerFullyVisible) it.hideController() else it.showController() }
-                },
-                isRepeat = { System.currentTimeMillis() - lastSeekAt < 700L },
-                onSeek = {
-                    val target = exo.currentPosition + SEEK_FORWARD_MS
-                    val duration = exo.duration
-                    exo.seekTo(if (duration > 0) minOf(target, duration) else target)
-                    seekAccum = if (seekAccum > 0) seekAccum + (SEEK_FORWARD_MS / 1000).toInt() else (SEEK_FORWARD_MS / 1000).toInt()
-                    lastSeekAt = System.currentTimeMillis()
-                    seekTick++
-                },
-            )
+            Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                SeekZone(
+                    modifier = Modifier.weight(0.38f).fillMaxHeight(),
+                    label = if (seekAccum < 0) "−${-seekAccum}s" else null,
+                    onToggleControls = {
+                        playerView?.let { if (it.isControllerFullyVisible) it.hideController() else it.showController() }
+                    },
+                    isRepeat = { System.currentTimeMillis() - lastSeekAt < 700L },
+                    onSeek = {
+                        exo.seekTo((exo.currentPosition - SEEK_BACK_MS).coerceAtLeast(0L))
+                        seekAccum = if (seekAccum < 0) seekAccum - (SEEK_BACK_MS / 1000).toInt() else -(SEEK_BACK_MS / 1000).toInt()
+                        lastSeekAt = System.currentTimeMillis()
+                        seekTick++
+                    },
+                )
+                Spacer(Modifier.weight(0.24f))
+                SeekZone(
+                    modifier = Modifier.weight(0.38f).fillMaxHeight(),
+                    label = if (seekAccum > 0) "+${seekAccum}s" else null,
+                    onToggleControls = {
+                        playerView?.let { if (it.isControllerFullyVisible) it.hideController() else it.showController() }
+                    },
+                    isRepeat = { System.currentTimeMillis() - lastSeekAt < 700L },
+                    onSeek = {
+                        val target = exo.currentPosition + SEEK_FORWARD_MS
+                        val duration = exo.duration
+                        exo.seekTo(if (duration > 0) minOf(target, duration) else target)
+                        seekAccum = if (seekAccum > 0) seekAccum + (SEEK_FORWARD_MS / 1000).toInt() else (SEEK_FORWARD_MS / 1000).toInt()
+                        lastSeekAt = System.currentTimeMillis()
+                        seekTick++
+                    },
+                )
+            }
+            Spacer(Modifier.height(110.dp))
+            Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(bottom = 60.dp)) {
+                SeekZone(
+                    modifier = Modifier.weight(0.38f).fillMaxHeight(),
+                    label = null,
+                    onToggleControls = {
+                        playerView?.let { if (it.isControllerFullyVisible) it.hideController() else it.showController() }
+                    },
+                    isRepeat = { System.currentTimeMillis() - lastSeekAt < 700L },
+                    onSeek = {
+                        exo.seekTo((exo.currentPosition - SEEK_BACK_MS).coerceAtLeast(0L))
+                        seekAccum = if (seekAccum < 0) seekAccum - (SEEK_BACK_MS / 1000).toInt() else -(SEEK_BACK_MS / 1000).toInt()
+                        lastSeekAt = System.currentTimeMillis()
+                        seekTick++
+                    },
+                )
+                Spacer(Modifier.weight(0.24f))
+                SeekZone(
+                    modifier = Modifier.weight(0.38f).fillMaxHeight(),
+                    label = null,
+                    onToggleControls = {
+                        playerView?.let { if (it.isControllerFullyVisible) it.hideController() else it.showController() }
+                    },
+                    isRepeat = { System.currentTimeMillis() - lastSeekAt < 700L },
+                    onSeek = {
+                        val target = exo.currentPosition + SEEK_FORWARD_MS
+                        val duration = exo.duration
+                        exo.seekTo(if (duration > 0) minOf(target, duration) else target)
+                        seekAccum = if (seekAccum > 0) seekAccum + (SEEK_FORWARD_MS / 1000).toInt() else (SEEK_FORWARD_MS / 1000).toInt()
+                        lastSeekAt = System.currentTimeMillis()
+                        seekTick++
+                    },
+                )
+            }
         }
 
         error?.let { message ->
