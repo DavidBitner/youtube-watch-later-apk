@@ -1,5 +1,9 @@
 package com.davidbitner.watchlater.ui
 
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
@@ -73,7 +77,10 @@ import com.davidbitner.watchlater.data.Repo
 import com.davidbitner.watchlater.data.VideoItem
 import com.davidbitner.watchlater.playback.Playback
 import com.davidbitner.watchlater.sync.SyncScheduler
+import com.davidbitner.watchlater.youtube.YouTubeApi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class FocusKind { CURRENT, NEXT }
 
@@ -128,6 +135,90 @@ fun HomeScreen(onPlay: (String) -> Unit, onOpenSettings: () -> Unit) {
         state.items.count { it.state == DownloadState.DOWNLOADED }
     }
     val busy = state.sync.running || waiting
+
+    var confirmRemove by remember { mutableStateOf<VideoItem?>(null) }
+    var authFor by remember { mutableStateOf<VideoItem?>(null) }
+    var removing by remember { mutableStateOf(false) }
+
+    suspend fun performRemove(item: VideoItem, token: String) {
+        val playlistId = YouTubeApi.playlistId(Repo.settings.value.playlistUrl)
+        if (playlistId == null) {
+            snackbar.showSnackbar("Playlist id not found")
+            return
+        }
+        removing = true
+        val error = withContext(Dispatchers.IO) {
+            try {
+                YouTubeApi.removeFromPlaylist(token, playlistId, item.video.id)
+                null
+            } catch (e: Exception) {
+                e.message ?: "Request failed"
+            }
+        }
+        removing = false
+        if (error != null) {
+            snackbar.showSnackbar(error)
+            return
+        }
+        if (Playback.currentId.value == item.video.id) Playback.stop(context)
+        Repo.removeVideo(item.video.id)
+        snackbar.showSnackbar("Removed from the YouTube playlist")
+    }
+
+    val authLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { res ->
+        val item = authFor
+        authFor = null
+        if (item != null) {
+            scope.launch {
+                val token = if (res.resultCode == Activity.RESULT_OK) {
+                    try {
+                        YouTubeApi.resultFromIntent(context, res.data).accessToken
+                    } catch (_: Exception) {
+                        null
+                    }
+                } else {
+                    null
+                }
+                if (token != null) performRemove(item, token) else snackbar.showSnackbar("Sign-in cancelled")
+            }
+        }
+    }
+
+    fun startRemove(item: VideoItem) {
+        if (removing) return
+        scope.launch {
+            try {
+                val result = YouTubeApi.authorize(context)
+                val pending = result.pendingIntent
+                if (result.hasResolution() && pending != null) {
+                    authFor = item
+                    authLauncher.launch(IntentSenderRequest.Builder(pending.intentSender).build())
+                } else {
+                    val token = result.accessToken
+                    if (token != null) performRemove(item, token) else snackbar.showSnackbar("Could not sign in")
+                }
+            } catch (e: Exception) {
+                snackbar.showSnackbar("Sign-in failed: ${e.message ?: "unknown error"}")
+            }
+        }
+    }
+
+    confirmRemove?.let { item ->
+        AlertDialog(
+            onDismissRequest = { confirmRemove = null },
+            title = { Text("Remove from the YouTube playlist?") },
+            text = {
+                Text("\"${item.video.title}\" will be removed from your playlist on YouTube and the downloaded file will be deleted from this device.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmRemove = null
+                    startRemove(item)
+                }) { Text("Remove") }
+            },
+            dismissButton = { TextButton(onClick = { confirmRemove = null }) { Text("Cancel") } },
+        )
+    }
 
     val lastId = remember { Repo.lastPlayedId() }
     val nowId by Playback.currentId.collectAsStateWithLifecycle()
@@ -251,6 +342,7 @@ fun HomeScreen(onPlay: (String) -> Unit, onOpenSettings: () -> Unit) {
                     },
                     onDelete = { Repo.deleteDownload(item.video.id) },
                     onToggleWatched = { Repo.markWatched(item.video.id, !item.watched) },
+                    onRemove = { confirmRemove = item },
                 )
             }
         }
@@ -331,6 +423,7 @@ private fun VideoRow(
     onDownload: () -> Unit,
     onDelete: () -> Unit,
     onToggleWatched: () -> Unit,
+    onRemove: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
     val available = item.state == DownloadState.DOWNLOADED || item.state == DownloadState.DOWNLOADING
@@ -480,6 +573,10 @@ private fun VideoRow(
                 DropdownMenuItem(
                     text = { Text(if (item.watched) "Mark as unwatched" else "Mark as watched") },
                     onClick = { menu = false; onToggleWatched() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Remove from playlist") },
+                    onClick = { menu = false; onRemove() },
                 )
             }
         }

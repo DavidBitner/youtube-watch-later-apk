@@ -25,7 +25,7 @@ class WatchLaterApp : Application() {
         super.onCreate()
         Repo.init(this)
         Notifications.createChannel(this)
-        SyncScheduler.schedulePeriodic(this)
+        SyncScheduler.cancelPeriodic(this)
         thread(name = "ytdlp-init") {
             try {
                 YtDlp.ensureInit(this)

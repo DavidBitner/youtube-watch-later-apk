@@ -20,7 +20,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.davidbitner.watchlater.data.Repo
 import com.davidbitner.watchlater.playback.Playback
+import com.davidbitner.watchlater.sync.SyncScheduler
 import com.davidbitner.watchlater.ui.MiniPlayer
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,6 +44,9 @@ class MainActivity : ComponentActivity() {
             WatchLaterTheme {
                 AppRoot()
             }
+        }
+        if (savedInstanceState == null && Repo.settings.value.playlistUrl.isNotBlank()) {
+            SyncScheduler.syncNow(this)
         }
     }
 }

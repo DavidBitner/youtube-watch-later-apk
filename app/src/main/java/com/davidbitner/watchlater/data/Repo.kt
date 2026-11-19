@@ -333,6 +333,17 @@ object Repo {
     }
 
     @Synchronized
+    fun removeVideo(id: String) {
+        videos = videos.filter { it.id != id }
+        savePlaylist()
+        videosDir.listFiles()?.forEach { f ->
+            if (f.name.substringBefore('.') == id) f.delete()
+        }
+        watchPrefs.edit().remove("pos_$id").remove("done_$id").remove("skip_$id").apply()
+        refreshFiles()
+    }
+
+    @Synchronized
     fun refreshFiles() {
         val map = HashMap<String, File>()
         var total = 0L
