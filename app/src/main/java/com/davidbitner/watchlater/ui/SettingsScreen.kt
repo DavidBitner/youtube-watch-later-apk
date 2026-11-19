@@ -141,7 +141,6 @@ fun SettingsScreen(onBack: () -> Unit) {
                 checked = s.wifiOnly,
             ) { v ->
                 Repo.updateSettings { it.copy(wifiOnly = v) }
-                SyncScheduler.schedulePeriodic(context)
             }
 
             Label("Storage limit")
@@ -216,7 +215,6 @@ fun SettingsScreen(onBack: () -> Unit) {
                         SyncScheduler.pause(context)
                         delay(1500)
                         val error = withContext(Dispatchers.IO) { Repo.moveStorage(target) }
-                        SyncScheduler.schedulePeriodic(context)
                         snackbar.showSnackbar(error ?: "Storage changed to $name")
                     }
                 }) { Text("Continue") }
