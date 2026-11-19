@@ -4,6 +4,8 @@ import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -22,7 +24,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.davidbitner.watchlater.data.Repo
 import com.davidbitner.watchlater.playback.Playback
-import com.davidbitner.watchlater.sync.SyncScheduler
+import com.davidbitner.watchlater.sync.SyncGate
 import com.davidbitner.watchlater.ui.MiniPlayer
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,20 +36,32 @@ import com.davidbitner.watchlater.ui.SettingsScreen
 import com.davidbitner.watchlater.ui.WatchLaterTheme
 
 class MainActivity : ComponentActivity() {
+    private val syncAuthLauncher = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { res ->
+        SyncGate.onPromptResult(this, res.resultCode == RESULT_OK)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
+        SyncGate.attach { pending ->
+            syncAuthLauncher.launch(IntentSenderRequest.Builder(pending.intentSender).build())
+        }
         setContent {
             WatchLaterTheme {
                 AppRoot()
             }
         }
         if (savedInstanceState == null && Repo.settings.value.playlistUrl.isNotBlank()) {
-            SyncScheduler.syncNow(this)
+            SyncGate.request(this)
         }
+    }
+
+    override fun onDestroy() {
+        SyncGate.detach()
+        super.onDestroy()
     }
 }
 

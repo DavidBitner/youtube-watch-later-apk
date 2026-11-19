@@ -293,6 +293,7 @@ object Repo {
                     channel = o.optString("channel"),
                     durationSec = o.optLong("duration"),
                     position = o.optInt("position"),
+                    itemId = o.optString("itemId"),
                 )
             }
         } catch (_: Exception) {
@@ -310,6 +311,7 @@ object Repo {
                     .put("channel", v.channel)
                     .put("duration", v.durationSec)
                     .put("position", v.position)
+                    .put("itemId", v.itemId)
             )
         }
         playlistFile.writeText(JSONObject().put("title", title).put("videos", arr).toString())

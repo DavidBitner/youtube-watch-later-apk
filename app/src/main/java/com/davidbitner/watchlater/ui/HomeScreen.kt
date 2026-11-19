@@ -76,6 +76,7 @@ import com.davidbitner.watchlater.data.DownloadState
 import com.davidbitner.watchlater.data.Repo
 import com.davidbitner.watchlater.data.VideoItem
 import com.davidbitner.watchlater.playback.Playback
+import com.davidbitner.watchlater.sync.SyncGate
 import com.davidbitner.watchlater.sync.SyncScheduler
 import com.davidbitner.watchlater.youtube.YouTubeApi
 import kotlinx.coroutines.Dispatchers
@@ -121,7 +122,7 @@ fun HomeScreen(onPlay: (String) -> Unit, onOpenSettings: () -> Unit) {
 
     LaunchedEffect(Unit) {
         Repo.recheckStorage()
-        if (!Repo.home.value.noPlaylist && Repo.home.value.totalCount == 0) SyncScheduler.syncNow(context)
+        if (!Repo.home.value.noPlaylist && Repo.home.value.totalCount == 0) SyncGate.request(context)
     }
 
     val visible = remember(state.items, filter) {
@@ -149,7 +150,7 @@ fun HomeScreen(onPlay: (String) -> Unit, onOpenSettings: () -> Unit) {
         removing = true
         val error = withContext(Dispatchers.IO) {
             try {
-                YouTubeApi.removeFromPlaylist(token, playlistId, item.video.id)
+                YouTubeApi.removeFromPlaylist(token, playlistId, item.video.id, item.video.itemId)
                 null
             } catch (e: Exception) {
                 e.message ?: "Request failed"
@@ -259,7 +260,7 @@ fun HomeScreen(onPlay: (String) -> Unit, onOpenSettings: () -> Unit) {
                             Icon(Icons.Filled.Close, contentDescription = "Stop sync")
                         }
                     } else {
-                        IconButton(onClick = { SyncScheduler.syncNow(context) }) {
+                        IconButton(onClick = { SyncGate.request(context) }) {
                             Icon(Icons.Filled.Refresh, contentDescription = "Sync now")
                         }
                     }
@@ -338,7 +339,7 @@ fun HomeScreen(onPlay: (String) -> Unit, onOpenSettings: () -> Unit) {
                     },
                     onDownload = {
                         Repo.requestDownload(item.video.id)
-                        SyncScheduler.syncNow(context)
+                        SyncGate.request(context)
                     },
                     onDelete = { Repo.deleteDownload(item.video.id) },
                     onToggleWatched = { Repo.markWatched(item.video.id, !item.watched) },

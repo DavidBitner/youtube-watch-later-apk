@@ -11,6 +11,7 @@ data class Video(
     val channel: String,
     val durationSec: Long,
     val position: Int,
+    val itemId: String = "",
 )
 
 enum class DownloadState { DOWNLOADED, DOWNLOADING, QUEUED, NOT_DOWNLOADED }

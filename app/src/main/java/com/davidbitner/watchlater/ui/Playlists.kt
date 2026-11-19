@@ -1,6 +1,16 @@
 package com.davidbitner.watchlater.ui
 
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,7 +53,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.davidbitner.watchlater.data.PlaylistRef
 import com.davidbitner.watchlater.data.Repo
-import com.davidbitner.watchlater.sync.SyncScheduler
+import com.davidbitner.watchlater.sync.SyncGate
+import com.davidbitner.watchlater.youtube.YouTubeApi
 
 private fun PlaylistRef.label(): String = title.ifBlank { url.substringAfter("list=") }
 
@@ -60,7 +71,7 @@ fun AddPlaylistForm(buttonLabel: String = "Add playlist", onAdded: () -> Unit = 
             return
         }
         Repo.selectPlaylist(url)
-        SyncScheduler.restartSync(context)
+        SyncGate.request(context, restart = true)
         text = ""
         error = false
         onAdded()
@@ -87,6 +98,129 @@ fun AddPlaylistForm(buttonLabel: String = "Add playlist", onAdded: () -> Unit = 
 }
 
 @Composable
+fun AccountPlaylistPicker(buttonLabel: String = "Choose from my playlists", onPicked: () -> Unit = {}) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var lists by remember { mutableStateOf<List<YouTubeApi.PlaylistInfo>?>(null) }
+    val activeUrl = Repo.settings.collectAsStateWithLifecycle().value.playlistUrl
+
+    fun load(token: String) {
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { runCatching { YouTubeApi.listPlaylists(token) } }
+            loading = false
+            result
+                .onSuccess { lists = it }
+                .onFailure { error = it.message ?: "Could not load playlists" }
+        }
+    }
+
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { res ->
+        val token = if (res.resultCode == Activity.RESULT_OK) {
+            runCatching { YouTubeApi.resultFromIntent(context, res.data).accessToken }.getOrNull()
+        } else {
+            null
+        }
+        if (token != null) {
+            load(token)
+        } else {
+            loading = false
+            error = "Sign-in cancelled"
+        }
+    }
+
+    fun start() {
+        loading = true
+        error = null
+        scope.launch {
+            try {
+                val result = YouTubeApi.authorize(context)
+                val pending = result.pendingIntent
+                if (result.hasResolution() && pending != null) {
+                    launcher.launch(IntentSenderRequest.Builder(pending.intentSender).build())
+                } else {
+                    val token = result.accessToken
+                    if (token != null) {
+                        load(token)
+                    } else {
+                        loading = false
+                        error = "Could not sign in"
+                    }
+                }
+            } catch (e: Exception) {
+                loading = false
+                error = "Sign-in failed: ${e.message ?: "unknown error"}"
+            }
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Button(onClick = ::start, enabled = !loading) {
+            Text(if (loading) "Loading…" else buttonLabel)
+        }
+        error?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+    }
+
+    lists?.let { all ->
+        AlertDialog(
+            onDismissRequest = { lists = null },
+            title = { Text("Your playlists") },
+            text = {
+                if (all.isEmpty()) {
+                    Text("No playlists found in this account.")
+                } else {
+                    LazyColumn {
+                        items(all, key = { it.id }) { info ->
+                            val url = "https://www.youtube.com/playlist?list=${info.id}"
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        lists = null
+                                        if (url != activeUrl) {
+                                            Repo.selectPlaylist(url)
+                                            SyncGate.request(context, restart = true)
+                                        }
+                                        onPicked()
+                                    }
+                                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = null,
+                                    tint = if (url == activeUrl) MaterialTheme.colorScheme.primary
+                                    else androidx.compose.ui.graphics.Color.Transparent,
+                                )
+                                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                    Text(
+                                        info.title.ifBlank { info.id },
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        "${info.count} videos · ${info.privacy}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { lists = null }) { Text("Close") } },
+        )
+    }
+}
+
+@Composable
 fun WelcomeScreen(onOpenSettings: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -104,7 +238,7 @@ fun WelcomeScreen(onOpenSettings: () -> Unit) {
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Paste a YouTube playlist link. Its videos download on Wi-Fi and play offline at your speed.",
+                "Pick one of your YouTube playlists. Its videos download on Wi-Fi and play offline at your speed.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -133,6 +267,14 @@ fun WelcomeScreen(onOpenSettings: () -> Unit) {
                 }
                 Spacer(Modifier.height(16.dp))
             }
+            AccountPlaylistPicker()
+            Spacer(Modifier.height(16.dp))
+            Text(
+                "or paste a link",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(8.dp))
             AddPlaylistForm(buttonLabel = "Start")
             Spacer(Modifier.height(16.dp))
             TextButton(onClick = onOpenSettings) {
@@ -175,7 +317,7 @@ fun PlaylistTitle(
                         open = false
                         if (ref.url != activeUrl) {
                             Repo.selectPlaylist(ref.url)
-                            SyncScheduler.restartSync(context)
+                            SyncGate.request(context, restart = true)
                         }
                     },
                 )
@@ -203,7 +345,7 @@ fun PlaylistManager(history: List<PlaylistRef>, activeUrl: String) {
                     .clickable {
                         if (!active) {
                             Repo.selectPlaylist(ref.url)
-                            SyncScheduler.restartSync(context)
+                            SyncGate.request(context, restart = true)
                         }
                     }
                     .padding(start = 8.dp),
@@ -248,7 +390,7 @@ fun PlaylistManager(history: List<PlaylistRef>, activeUrl: String) {
                     val wasActive = ref.url == activeUrl
                     Repo.removePlaylist(ref.url)
                     if (wasActive && Repo.settings.value.playlistUrl.isNotBlank()) {
-                        SyncScheduler.restartSync(context)
+                        SyncGate.request(context, restart = true)
                     }
                 }) { Text("Remove") }
             },

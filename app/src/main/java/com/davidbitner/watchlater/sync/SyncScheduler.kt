@@ -7,6 +7,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import androidx.work.workDataOf
 import com.davidbitner.watchlater.data.Repo
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -23,17 +24,19 @@ object SyncScheduler {
             .setRequiresBatteryNotLow(batteryNotLow)
             .build()
 
-    fun syncNow(context: Context) {
+    fun syncNow(context: Context, fallback: Boolean = false) {
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
             .setConstraints(constraints(batteryNotLow = false))
+            .setInputData(workDataOf(SyncWorker.KEY_FALLBACK to fallback))
             .build()
         WorkManager.getInstance(context)
             .enqueueUniqueWork(MANUAL, ExistingWorkPolicy.KEEP, request)
     }
 
-    fun restartSync(context: Context) {
+    fun restartSync(context: Context, fallback: Boolean = false) {
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
             .setConstraints(constraints(batteryNotLow = false))
+            .setInputData(workDataOf(SyncWorker.KEY_FALLBACK to fallback))
             .build()
         WorkManager.getInstance(context)
             .enqueueUniqueWork(MANUAL, ExistingWorkPolicy.REPLACE, request)

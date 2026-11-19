@@ -44,6 +44,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.davidbitner.watchlater.data.Repo
+import com.davidbitner.watchlater.sync.SyncGate
 import com.davidbitner.watchlater.sync.SyncScheduler
 import com.davidbitner.watchlater.ytdlp.YtDlp
 import kotlinx.coroutines.Dispatchers
@@ -166,7 +167,10 @@ fun SettingsScreen(onBack: () -> Unit) {
             Section("Playlists")
             PlaylistManager(history = s.history, activeUrl = s.playlistUrl)
             Spacer(Modifier.height(4.dp))
-            Label("Add a playlist")
+            Label("Choose a playlist")
+            AccountPlaylistPicker(onPicked = onBack)
+            Spacer(Modifier.height(4.dp))
+            Label("Or paste a link")
             AddPlaylistForm(onAdded = onBack)
 
             Section("Maintenance")
@@ -250,7 +254,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 TextButton(onClick = {
                     confirmReset = false
                     Repo.resetDownloads()
-                    SyncScheduler.syncNow(context)
+                    SyncGate.request(context)
                 }) { Text("Delete") }
             },
             dismissButton = {

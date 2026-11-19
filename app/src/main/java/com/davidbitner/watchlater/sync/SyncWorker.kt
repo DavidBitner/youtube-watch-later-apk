@@ -10,6 +10,8 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.davidbitner.watchlater.Notifications
 import com.davidbitner.watchlater.data.Repo
+import com.davidbitner.watchlater.data.Video
+import com.davidbitner.watchlater.youtube.YouTubeApi
 import com.davidbitner.watchlater.ytdlp.YtDlp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -58,7 +60,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         YtDlp.updateIfStale(ctx)
 
         val settings = Repo.settings.value
-        val (title, list) = YtDlp.fetchPlaylist(settings.playlistUrl)
+        val (title, list) = fetchList(ctx, settings.playlistUrl)
         Repo.applyPlaylist(title, list)
 
         val queue = Repo.downloadQueue()
@@ -131,6 +133,24 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         return Result.success()
     }
 
+    private suspend fun fetchList(ctx: Context, url: String): Pair<String, List<Video>> {
+        val playlistId = YouTubeApi.playlistId(url)
+        if (playlistId != null && !inputData.getBoolean(KEY_FALLBACK, false)) {
+            var token = YouTubeApi.silentToken(ctx)
+            if (token != null) {
+                try {
+                    return YouTubeApi.fetchPlaylist(token, playlistId)
+                } catch (e: YouTubeApi.ApiException) {
+                    if (e.code != 401) throw e
+                }
+                token = YouTubeApi.silentToken(ctx)
+                if (token != null) return YouTubeApi.fetchPlaylist(token, playlistId)
+            }
+        }
+        Repo.setSync(true, "Reading the playlist with yt-dlp…")
+        return YtDlp.fetchPlaylist(url)
+    }
+
     private suspend fun showForeground(text: String, percent: Int) {
         val notification = buildNotification(text, percent)
         try {
@@ -166,6 +186,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         }
 
     companion object {
+        const val KEY_FALLBACK = "fallback"
         private const val NOTIFICATION_ID = 4101
     }
 }
