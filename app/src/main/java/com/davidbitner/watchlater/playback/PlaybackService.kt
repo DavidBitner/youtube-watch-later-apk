@@ -3,6 +3,8 @@ package com.davidbitner.watchlater.playback
 import android.app.PendingIntent
 import android.content.Intent
 import androidx.media3.session.MediaSession
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 import androidx.media3.session.MediaSessionService
 import com.davidbitner.watchlater.MainActivity
 
@@ -31,6 +33,19 @@ class PlaybackService : MediaSessionService() {
         )
         val created = MediaSession.Builder(this, Playback.player(this))
             .setSessionActivity(open)
+            .setCallback(object : MediaSession.Callback {
+                override fun onPlaybackResumption(
+                    mediaSession: MediaSession,
+                    controller: MediaSession.ControllerInfo,
+                ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+                    val state = Playback.resumeState()
+                    return if (state != null) {
+                        Futures.immediateFuture(state)
+                    } else {
+                        Futures.immediateFailedFuture(UnsupportedOperationException("Nothing to resume"))
+                    }
+                }
+            })
             .build()
         session = created
         addSession(created)

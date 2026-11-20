@@ -1,6 +1,9 @@
 package com.davidbitner.watchlater
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -40,6 +43,9 @@ class MainActivity : ComponentActivity() {
         SyncGate.onPromptResult(this, res.resultCode == RESULT_OK)
     }
 
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
@@ -48,6 +54,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         SyncGate.attach { pending ->
             syncAuthLauncher.launch(IntentSenderRequest.Builder(pending.intentSender).build())
+        }
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         setContent {
             WatchLaterTheme {

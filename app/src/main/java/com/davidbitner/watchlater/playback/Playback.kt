@@ -10,6 +10,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.MediaSession
 import com.davidbitner.watchlater.data.Repo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -135,7 +136,18 @@ object Playback {
         if (index < 0) return
         saveCurrent()
         durations = playlist.associate { it.first.id to it.first.durationSec * 1000L }
-        val items = playlist.map { (video, file) ->
+        val items = buildItems(playlist)
+        _currentId.value = id
+        Repo.setLastPlayed(id)
+        p.setMediaItems(items, index, resumePosition(id))
+        p.setPlaybackSpeed(Repo.settings.value.speed)
+        p.prepare()
+        p.playWhenReady = true
+        app.startService(Intent(app, PlaybackService::class.java))
+    }
+
+    private fun buildItems(playlist: List<Pair<com.davidbitner.watchlater.data.Video, java.io.File>>): List<MediaItem> =
+        playlist.map { (video, file) ->
             MediaItem.Builder()
                 .setMediaId(video.id)
                 .setUri(Uri.fromFile(file))
@@ -148,13 +160,17 @@ object Playback {
                 )
                 .build()
         }
-        _currentId.value = id
-        Repo.setLastPlayed(id)
-        p.setMediaItems(items, index, resumePosition(id))
-        p.setPlaybackSpeed(Repo.settings.value.speed)
-        p.prepare()
-        p.playWhenReady = true
-        app.startService(Intent(app, PlaybackService::class.java))
+
+    fun resumeState(): MediaSession.MediaItemsWithStartPosition? {
+        val playlist = Repo.playable()
+        if (playlist.isEmpty()) return null
+        val wanted = _currentId.value ?: Repo.lastPlayedId()
+        val index = playlist.indexOfFirst { it.first.id == wanted }.coerceAtLeast(0)
+        val id = playlist[index].first.id
+        durations = playlist.associate { it.first.id to it.first.durationSec * 1000L }
+        _error.value = null
+        exo?.setPlaybackSpeed(Repo.settings.value.speed)
+        return MediaSession.MediaItemsWithStartPosition(buildItems(playlist), index, resumePosition(id))
     }
 
     fun toggle() {
