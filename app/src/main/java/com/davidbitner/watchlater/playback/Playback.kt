@@ -9,6 +9,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import com.davidbitner.watchlater.data.Repo
@@ -161,6 +162,7 @@ object Playback {
                 .build()
         }
 
+    @OptIn(UnstableApi::class)
     fun resumeState(): MediaSession.MediaItemsWithStartPosition? {
         val playlist = Repo.playable()
         if (playlist.isEmpty()) return null
