@@ -3,7 +3,10 @@ package com.davidbitner.watchlater.ui
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
+import kotlin.math.abs
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -117,6 +120,43 @@ fun PlayerScreen(onClose: () -> Unit) {
                 PlayerView(ctx).apply {
                     playerView = this
                     findViewById<View>(androidx.media3.ui.R.id.exo_settings)?.visibility = View.GONE
+                    findViewById<View>(androidx.media3.ui.R.id.exo_bottom_bar)?.let { bar ->
+                        val safeBottom = (28 * bar.resources.displayMetrics.density).toInt()
+                        bar.setPadding(bar.paddingLeft, bar.paddingTop, bar.paddingRight, bar.paddingBottom + safeBottom)
+                    }
+                    findViewById<View>(androidx.media3.ui.R.id.exo_progress)?.let { progress ->
+                        val touchSlop = ViewConfiguration.get(ctx).scaledTouchSlop
+                        var downX = 0f
+                        var downY = 0f
+                        var canceled = false
+                        progress.setOnTouchListener { v, event ->
+                            when (event.actionMasked) {
+                                MotionEvent.ACTION_DOWN -> {
+                                    downX = event.rawX
+                                    downY = event.rawY
+                                    canceled = false
+                                    false
+                                }
+                                MotionEvent.ACTION_MOVE -> {
+                                    val dy = downY - event.rawY
+                                    val dx = abs(event.rawX - downX)
+                                    if (!canceled && dy > touchSlop && dy > dx) {
+                                        canceled = true
+                                        val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+                                        v.onTouchEvent(cancel)
+                                        cancel.recycle()
+                                        true
+                                    } else {
+                                        canceled
+                                    }
+                                }
+                                MotionEvent.ACTION_UP -> {
+                                    if (canceled) true else false
+                                }
+                                else -> false
+                            }
+                        }
+                    }
                     this.player = exo
                     keepScreenOn = true
                     setShowNextButton(true)
@@ -131,78 +171,42 @@ fun PlayerScreen(onClose: () -> Unit) {
             },
         )
 
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 80.dp, bottom = 60.dp),
+                .padding(top = 80.dp, bottom = 100.dp),
         ) {
-            Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                SeekZone(
-                    modifier = Modifier.weight(0.38f).fillMaxHeight(),
-                    label = if (seekAccum < 0) "−${-seekAccum}s" else null,
-                    onToggleControls = {
-                        playerView?.let { if (it.isControllerFullyVisible) it.hideController() else it.showController() }
-                    },
-                    isRepeat = { System.currentTimeMillis() - lastSeekAt < 700L },
-                    onSeek = {
-                        exo.seekTo((exo.currentPosition - SEEK_BACK_MS).coerceAtLeast(0L))
-                        seekAccum = if (seekAccum < 0) seekAccum - (SEEK_BACK_MS / 1000).toInt() else -(SEEK_BACK_MS / 1000).toInt()
-                        lastSeekAt = System.currentTimeMillis()
-                        seekTick++
-                    },
-                )
-                Spacer(Modifier.weight(0.24f))
-                SeekZone(
-                    modifier = Modifier.weight(0.38f).fillMaxHeight(),
-                    label = if (seekAccum > 0) "+${seekAccum}s" else null,
-                    onToggleControls = {
-                        playerView?.let { if (it.isControllerFullyVisible) it.hideController() else it.showController() }
-                    },
-                    isRepeat = { System.currentTimeMillis() - lastSeekAt < 700L },
-                    onSeek = {
-                        val target = exo.currentPosition + SEEK_FORWARD_MS
-                        val duration = exo.duration
-                        exo.seekTo(if (duration > 0) minOf(target, duration) else target)
-                        seekAccum = if (seekAccum > 0) seekAccum + (SEEK_FORWARD_MS / 1000).toInt() else (SEEK_FORWARD_MS / 1000).toInt()
-                        lastSeekAt = System.currentTimeMillis()
-                        seekTick++
-                    },
-                )
-            }
-            Spacer(Modifier.height(110.dp))
-            Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(bottom = 60.dp)) {
-                SeekZone(
-                    modifier = Modifier.weight(0.38f).fillMaxHeight(),
-                    label = null,
-                    onToggleControls = {
-                        playerView?.let { if (it.isControllerFullyVisible) it.hideController() else it.showController() }
-                    },
-                    isRepeat = { System.currentTimeMillis() - lastSeekAt < 700L },
-                    onSeek = {
-                        exo.seekTo((exo.currentPosition - SEEK_BACK_MS).coerceAtLeast(0L))
-                        seekAccum = if (seekAccum < 0) seekAccum - (SEEK_BACK_MS / 1000).toInt() else -(SEEK_BACK_MS / 1000).toInt()
-                        lastSeekAt = System.currentTimeMillis()
-                        seekTick++
-                    },
-                )
-                Spacer(Modifier.weight(0.24f))
-                SeekZone(
-                    modifier = Modifier.weight(0.38f).fillMaxHeight(),
-                    label = null,
-                    onToggleControls = {
-                        playerView?.let { if (it.isControllerFullyVisible) it.hideController() else it.showController() }
-                    },
-                    isRepeat = { System.currentTimeMillis() - lastSeekAt < 700L },
-                    onSeek = {
-                        val target = exo.currentPosition + SEEK_FORWARD_MS
-                        val duration = exo.duration
-                        exo.seekTo(if (duration > 0) minOf(target, duration) else target)
-                        seekAccum = if (seekAccum > 0) seekAccum + (SEEK_FORWARD_MS / 1000).toInt() else (SEEK_FORWARD_MS / 1000).toInt()
-                        lastSeekAt = System.currentTimeMillis()
-                        seekTick++
-                    },
-                )
-            }
+            SeekZone(
+                modifier = Modifier.weight(0.38f).fillMaxHeight(),
+                label = if (seekAccum < 0) "−${-seekAccum}s" else null,
+                onToggleControls = {
+                    playerView?.let { if (it.isControllerFullyVisible) it.hideController() else it.showController() }
+                },
+                isRepeat = { System.currentTimeMillis() - lastSeekAt < 700L },
+                onSeek = {
+                    exo.seekTo((exo.currentPosition - SEEK_BACK_MS).coerceAtLeast(0L))
+                    seekAccum = if (seekAccum < 0) seekAccum - (SEEK_BACK_MS / 1000).toInt() else -(SEEK_BACK_MS / 1000).toInt()
+                    lastSeekAt = System.currentTimeMillis()
+                    seekTick++
+                },
+            )
+            Spacer(Modifier.weight(0.24f))
+            SeekZone(
+                modifier = Modifier.weight(0.38f).fillMaxHeight(),
+                label = if (seekAccum > 0) "+${seekAccum}s" else null,
+                onToggleControls = {
+                    playerView?.let { if (it.isControllerFullyVisible) it.hideController() else it.showController() }
+                },
+                isRepeat = { System.currentTimeMillis() - lastSeekAt < 700L },
+                onSeek = {
+                    val target = exo.currentPosition + SEEK_FORWARD_MS
+                    val duration = exo.duration
+                    exo.seekTo(if (duration > 0) minOf(target, duration) else target)
+                    seekAccum = if (seekAccum > 0) seekAccum + (SEEK_FORWARD_MS / 1000).toInt() else (SEEK_FORWARD_MS / 1000).toInt()
+                    lastSeekAt = System.currentTimeMillis()
+                    seekTick++
+                },
+            )
         }
 
         error?.let { message ->
